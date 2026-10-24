@@ -63,6 +63,7 @@ export type ProbeMode = "off" | "shallow" | "deep";
 
 export interface RuntimeConfig {
   adminToken: string;
+  adminPassword: string;
   refreshIntervalMinutes: number;
   probeMode: ProbeMode;
   maxSources: number;

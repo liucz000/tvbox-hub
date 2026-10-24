@@ -14,6 +14,7 @@ const storage = new JsonFileStorage(join(dataDir, "tvbox-hub.json"));
 
 const runtime = makeRuntimeConfig({
   adminToken: process.env.ADMIN_TOKEN,
+  adminPassword: process.env.ADMIN_PASSWORD,
   refreshIntervalMinutes: process.env.REFRESH_INTERVAL_MINUTES ?? process.env.REFRESH_MINUTES,
   probeMode: process.env.PROBE,
   maxSources: process.env.MAX_SOURCES,
@@ -27,7 +28,11 @@ const app = createApp({ storage, runtime, startedAt: Date.now() });
 const server = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, (info) => {
   console.log(`[tvbox-hub] listening on http://0.0.0.0:${info.port}`);
   console.log(`[tvbox-hub] base url: ${runtime.baseUrl || "(来自请求 Host)"}`);
-  console.log(`[tvbox-hub] admin: ${runtime.adminToken ? "enabled" : "disabled (ADMIN_TOKEN 为空)"}`);
+  const adminModes = [
+    runtime.adminPassword ? "密码登录" : "",
+    runtime.adminToken ? "Bearer" : "",
+  ].filter(Boolean);
+  console.log(`[tvbox-hub] admin: ${adminModes.length ? adminModes.join(" + ") : "disabled (ADMIN_PASSWORD / ADMIN_TOKEN 均为空)"}`);
   console.log(`[tvbox-hub] probe: ${runtime.probeMode}, refresh interval: ${runtime.refreshIntervalMinutes}min`);
 });
 

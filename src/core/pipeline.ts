@@ -98,6 +98,41 @@ async function saveExtraSources(storage: Storage, entries: SourceEntry[]): Promi
   await storage.put(KEYS.extraSources, JSON.stringify(entries));
 }
 
+export async function loadDisabledSources(storage: Storage): Promise<string[]> {
+  const raw = await storage.get(KEYS.disabledSources);
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is string => typeof item === "string").map((item) => toAsciiUrl(item));
+  } catch {
+    return [];
+  }
+}
+
+async function saveDisabledSources(storage: Storage, urls: string[]): Promise<void> {
+  await storage.put(KEYS.disabledSources, JSON.stringify(urls));
+}
+
+/** 内置源不物理删除，只记录停用名单，聚合时跳过。 */
+export async function setBuiltinSourceEnabled(
+  storage: Storage,
+  input: string,
+  enabled: boolean,
+): Promise<string[]> {
+  const target = toAsciiUrl(asString(input));
+  const builtin = new Set(DEFAULT_SOURCES.map((item) => toAsciiUrl(item.url)));
+  if (!builtin.has(target)) throw new Error("不是内置源");
+  const current = await loadDisabledSources(storage);
+  const next = enabled
+    ? current.filter((url) => url !== target)
+    : current.includes(target)
+      ? current
+      : [...current, target];
+  await saveDisabledSources(storage, next);
+  return next;
+}
+
 export async function addExtraSource(
   storage: Storage,
   input: unknown,
@@ -126,11 +161,13 @@ export async function removeExtraSource(storage: Storage, url: string): Promise<
 
 async function collectSourceEntries(storage: Storage, maxSources: number): Promise<SourceEntry[]> {
   const extras = await loadExtraSources(storage);
+  const disabled = new Set(await loadDisabledSources(storage));
   const seen = new Set<string>();
   const out: SourceEntry[] = [];
   for (const entry of [...DEFAULT_SOURCES, ...extras]) {
-    if (seen.has(entry.url)) continue;
-    seen.add(entry.url);
+    const url = toAsciiUrl(entry.url);
+    if (seen.has(url) || disabled.has(url)) continue;
+    seen.add(url);
     out.push(entry);
   }
   return out.slice(0, maxSources);

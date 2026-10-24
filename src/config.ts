@@ -10,6 +10,7 @@ export const KEYS = {
   liveTxt: "live:txt",
   liveGroups: "live:groups",
   extraSources: "sources:extra",
+  disabledSources: "sources:disabled",
   jarPrefix: "jar:",
   jarIndex: "jars:index",
 } as const;
@@ -30,6 +31,7 @@ export function parsePositiveInt(value: string | undefined, fallback: number): n
 
 export function makeRuntimeConfig(input: {
   adminToken?: string;
+  adminPassword?: string;
   refreshIntervalMinutes?: string;
   probeMode?: string;
   maxSources?: string;
@@ -39,6 +41,7 @@ export function makeRuntimeConfig(input: {
 }): RuntimeConfig {
   return {
     adminToken: (input.adminToken ?? "").trim(),
+    adminPassword: (input.adminPassword ?? "").trim(),
     refreshIntervalMinutes: parsePositiveInt(input.refreshIntervalMinutes, DEFAULT_REFRESH_MINUTES),
     probeMode: parseProbeMode(input.probeMode),
     maxSources: parsePositiveInt(input.maxSources, DEFAULT_MAX_SOURCES),
