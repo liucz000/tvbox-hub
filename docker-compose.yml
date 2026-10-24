@@ -7,7 +7,9 @@ services:
     ports:
       - "${PORT:-5678}:5678"
     environment:
-      # 留空则不开启管理后台与手动刷新（只做定时聚合）
+      # 后台登录密码；留空则关闭密码登录
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
+      # Bearer 令牌，供 curl / 脚本调用；与密码均为空时不开启管理接口
       ADMIN_TOKEN: "${ADMIN_TOKEN:-}"
       # 局域网部署必须填真实 IP，否则配置里的 JAR / 直播地址不可达
       BASE_URL: "${BASE_URL:-}"
