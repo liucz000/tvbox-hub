@@ -20,10 +20,10 @@ REFRESH_INTERVAL_MINUTES = "720"
 PROBE = "off"
 MAX_SOURCES = "10"
 
-# 可选：自定义域名（先绑定域名，再取消注释）
-# routes = [
-#   { pattern = "tvbox.example.com/*", zone_name = "example.com" }
-# ]
+# 自定义域名（已在 Cloudflare 绑定）
+routes = [
+  { pattern = "tvbox.lcz.ccwu.cc", custom_domain = true }
+]
 
 # ADMIN_TOKEN 用 secret 写入，不要写在这里：
 #   npx wrangler secret put ADMIN_TOKEN
