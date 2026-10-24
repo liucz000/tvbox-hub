@@ -80,6 +80,18 @@ docker run -d --name tvbox-hub -p 5678:5678 \
   tvbox-hub
 ```
 
+也可以直接使用 GitHub Actions 构建好的镜像（`linux/amd64` + `linux/arm64`）：
+
+```bash
+docker run -d --name tvbox-hub -p 5678:5678 \
+  -e ADMIN_PASSWORD=your-password \
+  -e BASE_URL=http://192.168.1.10:5678 \
+  -v $PWD/data:/app/data \
+  ghcr.io/liucz000/tvbox-hub:latest
+```
+
+镜像由 [.github/workflows/docker.yml](./.github/workflows/docker.yml) 自动构建并推送到 GHCR：`main` 推送生成 `latest` 与 `sha-` 标签，`v*` tag 生成语义化版本标签，PR 只构建不推送。首次发布后需在 GitHub 包设置里把镜像可见性改为 `public`（或先 `docker login ghcr.io`）。
+
 容器以非 root 用户运行，内置 `HEALTHCHECK`（轮询 `/healthz`），数据落在 `./data/tvbox-hub.json`。
 
 > **局域网 / VPS 部署请务必设置 `BASE_URL` 为客户端可访问的地址**，否则配置里的 `/jar/...` 与 `/live.m3u` 会使用请求的 Host，跨网络访问时可能不可达。
