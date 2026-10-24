@@ -1,0 +1,29 @@
+name = "tvbox-hub"
+main = "src/worker.ts"
+compatibility_date = "2026-01-01"
+
+# 部署前执行：
+#   npx wrangler kv namespace create KV
+# 把输出的 id 填到下面（preview_id 可选，仅 wrangler dev 需要）
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_YOUR_KV_ID"
+# preview_id = "REPLACE_WITH_YOUR_PREVIEW_KV_ID"
+
+# 每小时唤醒一次，由 REFRESH_INTERVAL_MINUTES 决定是否真正聚合
+[triggers]
+crons = ["15 * * * *"]
+
+[vars]
+REFRESH_INTERVAL_MINUTES = "720"
+# off | shallow | deep；Worker 受子请求数量限制，默认关闭
+PROBE = "off"
+MAX_SOURCES = "30"
+
+# 可选：自定义域名（先绑定域名，再取消注释）
+# routes = [
+#   { pattern = "tvbox.example.com/*", zone_name = "example.com" }
+# ]
+
+# ADMIN_TOKEN 用 secret 写入，不要写在这里：
+#   npx wrangler secret put ADMIN_TOKEN

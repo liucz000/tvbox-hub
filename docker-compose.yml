@@ -1,0 +1,18 @@
+services:
+  tvbox-hub:
+    build: .
+    image: tvbox-hub:latest
+    container_name: tvbox-hub
+    restart: unless-stopped
+    ports:
+      - "${PORT:-5678}:5678"
+    environment:
+      # 留空则不开启管理后台与手动刷新（只做定时聚合）
+      ADMIN_TOKEN: "${ADMIN_TOKEN:-}"
+      # 局域网部署必须填真实 IP，否则配置里的 JAR / 直播地址不可达
+      BASE_URL: "${BASE_URL:-}"
+      CRON_SCHEDULE: "${CRON_SCHEDULE:-0 */6 * * *}"
+      PROBE: "${PROBE:-off}"
+      MAX_SOURCES: "${MAX_SOURCES:-30}"
+    volumes:
+      - ./data:/app/data
