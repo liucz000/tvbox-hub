@@ -7,7 +7,7 @@ compatibility_date = "2026-01-01"
 # 把输出的 id 填到下面（preview_id 可选，仅 wrangler dev 需要）
 [[kv_namespaces]]
 binding = "KV"
-id = "REPLACE_WITH_YOUR_KV_ID"
+id = "65d89fe8f5cd4ea5be6541f4601b5978"
 # preview_id = "REPLACE_WITH_YOUR_PREVIEW_KV_ID"
 
 # 每小时唤醒一次，由 REFRESH_INTERVAL_MINUTES 决定是否真正聚合
@@ -18,7 +18,7 @@ crons = ["15 * * * *"]
 REFRESH_INTERVAL_MINUTES = "720"
 # off | shallow | deep；Worker 受子请求数量限制，默认关闭
 PROBE = "off"
-MAX_SOURCES = "30"
+MAX_SOURCES = "10"
 
 # 可选：自定义域名（先绑定域名，再取消注释）
 # routes = [
