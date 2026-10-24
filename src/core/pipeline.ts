@@ -145,7 +145,7 @@ function collectLiveUrls(lives: TVBoxLive[]): string[] {
     const target = live.url ?? live.api;
     if (target && isPublicHttpUrl(target)) urls.add(target);
   }
-  return [...urls].slice(0, 12);
+  return [...urls].slice(0, 24);
 }
 
 async function loadLiveGroups(urls: string[]): Promise<LiveGroup[]> {

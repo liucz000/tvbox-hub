@@ -96,13 +96,13 @@ async function expandConfig(
     .filter((u) => isHttpUrl(u) && !seen.has(u))
     .slice(0, MAX_MULTI_REPO);
 
-  for (const childUrl of urls) {
+  const fetched = await mapLimit(urls, 4, async (childUrl) => {
     seen.add(childUrl);
     try {
       const text = await fetchText(childUrl, timeoutMs);
       const child = parseLooseJson(text);
-      if (!isRecord(child)) continue;
-      const children = await expandConfig(
+      if (!isRecord(child)) return [];
+      return await expandConfig(
         child as TVBoxConfig,
         childUrl,
         `${sourceName}·子源`,
@@ -110,11 +110,12 @@ async function expandConfig(
         timeoutMs,
         seen,
       );
-      out.push(...children);
     } catch {
       // 单个子源失败不影响整体
+      return [];
     }
-  }
+  });
+  for (const children of fetched) out.push(...children);
   return out;
 }
 

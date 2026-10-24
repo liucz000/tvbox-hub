@@ -1,6 +1,6 @@
 {
   "name": "tvbox-hub",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "聚合多个 TVBox / 影视仓配置源，一键部署到 Cloudflare Worker 或 Docker",
