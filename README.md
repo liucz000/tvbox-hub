@@ -41,7 +41,9 @@
 npm install
 npx wrangler login
 
-# 1. 创建 KV，把输出的 id 填进 wrangler.toml
+# 1. 生成本地 wrangler 配置（含账号专属信息，已被 git 忽略）
+cp wrangler.toml.example wrangler.toml
+# 创建 KV，把输出的 id 填进 wrangler.toml
 npx wrangler kv namespace create KV
 
 # 2. 写入管理密码（后台登录用）和/或 Bearer 令牌（脚本调用用）
@@ -56,7 +58,7 @@ curl -X POST https://<你的-worker>.workers.dev/refresh \
   -H "Authorization: Bearer <ADMIN_TOKEN>"
 ```
 
-`wrangler.toml` 里的 `[triggers] crons = ["15 * * * *"]` 每小时唤醒一次，由 `REFRESH_INTERVAL_MINUTES`（默认 720 分钟）决定是否真正聚合。
+`wrangler.toml` 里的 `[triggers] crons = ["15 * * * *"]` 每小时唤醒一次，由 `REFRESH_INTERVAL_MINUTES`（默认 720 分钟）决定是否真正聚合。绑定自定义域名时取消 `routes` 注释并换成自己的域名。
 
 > 本地调试：`npm run dev`（`wrangler dev`）。本地环境的出网请求走沙箱网络，若无外网权限可先用管理后台添加一个可访问的源验证流程。
 
