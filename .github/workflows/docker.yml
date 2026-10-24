@@ -57,3 +57,49 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  smoke:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull image
+        run: docker pull "ghcr.io/${{ github.repository }}:sha-${GITHUB_SHA::7}"
+
+      - name: Run container
+        run: |
+          docker run -d --name tvbox-hub-smoke -p 5678:5678 \
+            -e ADMIN_PASSWORD=smoke-test-pass \
+            "ghcr.io/${{ github.repository }}:sha-${GITHUB_SHA::7}"
+
+      - name: Wait for /healthz
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:5678/healthz; then
+              echo
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs tvbox-hub-smoke
+          exit 1
+
+      - name: Check password login
+        run: |
+          code=$(curl -s -o /tmp/login.json -w '%{http_code}' \
+            -c /tmp/cookies.txt \
+            -H 'Content-Type: application/json' \
+            -d '{"password":"smoke-test-pass"}' \
+            http://127.0.0.1:5678/admin/login)
+          echo "login status=$code body=$(cat /tmp/login.json)"
+          test "$code" = "200"
+          curl -fsS -b /tmp/cookies.txt http://127.0.0.1:5678/admin/sources | head -c 300
+          echo
+
+      - name: Container logs
+        if: always()
+        run: docker logs tvbox-hub-smoke || true
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f tvbox-hub-smoke || true
