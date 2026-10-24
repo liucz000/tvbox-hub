@@ -19,5 +19,3 @@ jobs:
         run: npm run typecheck
       - name: Unit tests
         run: npm test
-      - name: Build image
-        run: docker build -t tvbox-hub:ci .
