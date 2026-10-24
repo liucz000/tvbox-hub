@@ -1,19 +1,22 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { BASE_PLACEHOLDER, KEYS } from "./config";
 import { adminPage } from "./admin";
 import {
   addExtraSource,
   getStatus,
   isRefreshing,
+  loadDisabledSources,
   loadExtraSources,
   refresh,
   removeExtraSource,
+  setBuiltinSourceEnabled,
 } from "./core/pipeline";
 import { DEFAULT_SOURCES } from "./defaults";
 import type { Storage } from "./storage";
 import type { RuntimeConfig } from "./types";
-import { sha256Hex } from "./util/url";
+import { sha256Hex, toAsciiUrl } from "./util/url";
 
 interface CacheLike {
   match(request: Request): Promise<Response | undefined>;
@@ -40,19 +43,51 @@ function baseFor(c: Context, runtime: RuntimeConfig): string {
   return new URL(c.req.url).origin;
 }
 
+const SESSION_COOKIE = "tvbox_session";
+const SESSION_TTL_SECONDS = 12 * 60 * 60;
+
 async function tokenMatches(provided: string, expected: string): Promise<boolean> {
   if (!provided || !expected) return false;
   const [a, b] = await Promise.all([sha256Hex(provided, 32), sha256Hex(expected, 32)]);
   return a === b;
 }
 
+async function sessionSignature(secret: string, payload: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  return Array.from(new Uint8Array(signature))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function issueSession(password: string): Promise<string> {
+  const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS;
+  return `${exp}.${await sessionSignature(password, String(exp))}`;
+}
+
+async function validSession(value: string, password: string): Promise<boolean> {
+  const [expRaw, signature] = value.split(".");
+  if (!expRaw || !signature) return false;
+  const exp = Number(expRaw);
+  if (!Number.isInteger(exp) || exp < Math.floor(Date.now() / 1000)) return false;
+  return tokenMatches(signature, await sessionSignature(password, expRaw));
+}
+
 async function requireAuth(c: Context, runtime: RuntimeConfig): Promise<Response | null> {
-  if (!runtime.adminToken) {
-    return c.json({ error: "ADMIN_TOKEN 未配置，管理接口已关闭" }, 503);
+  if (!runtime.adminToken && !runtime.adminPassword) {
+    return c.json({ error: "ADMIN_PASSWORD / ADMIN_TOKEN 未配置，管理接口已关闭" }, 503);
   }
   const header = c.req.header("authorization") ?? "";
   const provided = header.replace(/^Bearer\s+/i, "").trim();
-  if (await tokenMatches(provided, runtime.adminToken)) return null;
+  if (runtime.adminToken && (await tokenMatches(provided, runtime.adminToken))) return null;
+  const cookie = getCookie(c, SESSION_COOKIE) ?? "";
+  if (runtime.adminPassword && cookie && (await validSession(cookie, runtime.adminPassword))) return null;
   return c.json({ error: "未授权" }, 401);
 }
 
@@ -265,6 +300,39 @@ export function createApp(deps: AppDeps): Hono {
     });
   });
 
+  app.post("/admin/login", async (c) => {
+    if (!runtime.adminPassword) {
+      return c.json({ error: "ADMIN_PASSWORD 未配置，密码登录已关闭" }, 503);
+    }
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      return c.json({ error: "请求体必须是 JSON" }, 400);
+    }
+    const password =
+      payload && typeof payload === "object" && typeof (payload as { password?: unknown }).password === "string"
+        ? (payload as { password: string }).password
+        : "";
+    if (!password) return c.json({ error: "请输入密码" }, 400);
+    if (!(await tokenMatches(password, runtime.adminPassword))) {
+      return c.json({ error: "密码错误" }, 401);
+    }
+    setCookie(c, SESSION_COOKIE, await issueSession(runtime.adminPassword), {
+      httpOnly: true,
+      sameSite: "Strict",
+      secure: new URL(c.req.url).protocol === "https:",
+      path: "/",
+      maxAge: SESSION_TTL_SECONDS,
+    });
+    return c.json({ ok: true });
+  });
+
+  app.post("/admin/logout", (c) => {
+    deleteCookie(c, SESSION_COOKIE, { path: "/" });
+    return c.json({ ok: true });
+  });
+
   app.get("/admin/status", async (c) => {
     const denied = await requireAuth(c, runtime);
     if (denied) return denied;
@@ -275,8 +343,12 @@ export function createApp(deps: AppDeps): Hono {
   app.get("/admin/sources", async (c) => {
     const denied = await requireAuth(c, runtime);
     if (denied) return denied;
-    const extra = await loadExtraSources(storage);
-    return c.json({ builtin: DEFAULT_SOURCES, extra });
+    const [extra, disabled] = await Promise.all([
+      loadExtraSources(storage),
+      loadDisabledSources(storage),
+    ]);
+    const builtin = DEFAULT_SOURCES.map((item) => ({ ...item, url: toAsciiUrl(item.url) }));
+    return c.json({ builtin, extra, disabled });
   });
 
   app.post("/admin/sources", async (c) => {
@@ -301,9 +373,31 @@ export function createApp(deps: AppDeps): Hono {
     if (denied) return denied;
     const url = c.req.query("url");
     if (!url) return c.json({ error: "缺少 url 参数" }, 400);
+    const target = toAsciiUrl(url);
     try {
+      if (DEFAULT_SOURCES.some((item) => toAsciiUrl(item.url) === target)) {
+        const disabled = await setBuiltinSourceEnabled(storage, url, false);
+        return c.json({ ok: true, disabled });
+      }
+      const current = await loadExtraSources(storage);
+      if (!current.some((item) => toAsciiUrl(item.url) === target)) {
+        return c.json({ error: "源不存在" }, 404);
+      }
       const extra = await removeExtraSource(storage, url);
       return c.json({ ok: true, extra });
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    }
+  });
+
+  app.post("/admin/sources/restore", async (c) => {
+    const denied = await requireAuth(c, runtime);
+    if (denied) return denied;
+    const url = c.req.query("url");
+    if (!url) return c.json({ error: "缺少 url 参数" }, 400);
+    try {
+      const disabled = await setBuiltinSourceEnabled(storage, url, true);
+      return c.json({ ok: true, disabled });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
     }

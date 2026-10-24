@@ -8,6 +8,7 @@ import { VERSION } from "./version";
 export interface Env {
   KV: KVNamespaceLike;
   ADMIN_TOKEN?: string;
+  ADMIN_PASSWORD?: string;
   REFRESH_INTERVAL_MINUTES?: string;
   PROBE?: string;
   MAX_SOURCES?: string;
@@ -23,6 +24,7 @@ const BOOT = Date.now();
 function runtimeFrom(env: Env): RuntimeConfig {
   return makeRuntimeConfig({
     adminToken: env.ADMIN_TOKEN,
+    adminPassword: env.ADMIN_PASSWORD,
     refreshIntervalMinutes: env.REFRESH_INTERVAL_MINUTES,
     probeMode: env.PROBE,
     maxSources: env.MAX_SOURCES,

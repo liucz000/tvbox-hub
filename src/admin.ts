@@ -46,7 +46,7 @@ export function adminPage(version: string): string {
 
   <div class="card" id="loginPanel">
     <div class="row">
-      <div class="grow"><input id="tokenInput" type="password" placeholder="ADMIN_TOKEN" autocomplete="current-password" /></div>
+      <div class="grow"><input id="pwInput" type="password" placeholder="管理密码" autocomplete="current-password" /></div>
       <button id="loginBtn">登录</button>
     </div>
     <div class="msg" id="loginMsg"></div>
@@ -98,8 +98,6 @@ export function adminPage(version: string): string {
 
 <script>
 (function () {
-  var TOKEN_KEY = 'tvbox_hub_token';
-  var token = sessionStorage.getItem(TOKEN_KEY) || '';
   var polling = null;
 
   function el(id) { return document.getElementById(id); }
@@ -112,20 +110,13 @@ export function adminPage(version: string): string {
     el('loginPanel').className = on ? 'card hidden' : 'card';
     el('main').className = on ? '' : 'hidden';
   }
-  function authHeaders(extra) {
-    var headers = Object.assign({}, extra || {});
-    if (token) headers['Authorization'] = 'Bearer ' + token;
-    return headers;
-  }
   function request(path, options) {
     var opts = Object.assign({}, options || {});
-    opts.headers = authHeaders(opts.headers);
+    opts.credentials = 'same-origin';
     return fetch(path, opts).then(function (res) {
       if (res.status === 401 || res.status === 503) {
-        token = '';
-        sessionStorage.removeItem(TOKEN_KEY);
         showMain(false);
-        setMsg('loginMsg', '令牌无效或管理接口未开启', true);
+        setMsg('loginMsg', '登录已失效，请重新输入管理密码', true);
         throw new Error('unauthorized');
       }
       return res.json().then(function (data) {
@@ -161,21 +152,28 @@ export function adminPage(version: string): string {
   function renderSources(data) {
     var body = el('sourceBody');
     body.textContent = '';
-    var all = data.builtin.map(function (s) { return { name: s.name, url: s.url, builtin: true }; })
-      .concat(data.extra.map(function (s) { return { name: s.name, url: s.url, builtin: false }; }));
+    var disabled = {};
+    (data.disabled || []).forEach(function (url) { disabled[url] = true; });
+    var all = data.builtin.map(function (s) {
+      return { name: s.name, url: s.url, builtin: true, disabled: !!disabled[s.url] };
+    }).concat(data.extra.map(function (s) {
+      return { name: s.name, url: s.url, builtin: false, disabled: false };
+    }));
     all.forEach(function (item) {
       var tr = document.createElement('tr');
       var name = document.createElement('td'); name.textContent = item.name;
       var url = document.createElement('td'); url.className = 'mono'; url.textContent = item.url;
-      var type = document.createElement('td'); type.textContent = item.builtin ? '内置' : '自定义';
+      var type = document.createElement('td');
+      type.textContent = item.builtin ? (item.disabled ? '内置（已停用）' : '内置') : '自定义';
       var action = document.createElement('td');
-      if (!item.builtin) {
-        var btn = document.createElement('button');
-        btn.className = 'danger';
-        btn.textContent = '删除';
-        btn.onclick = function () { removeSource(item.url); };
-        action.appendChild(btn);
-      }
+      var btn = document.createElement('button');
+      var canRestore = item.builtin && item.disabled;
+      btn.className = canRestore ? 'ghost' : 'danger';
+      btn.textContent = canRestore ? '恢复' : '删除';
+      btn.onclick = canRestore
+        ? function () { restoreSource(item.url); }
+        : function () { removeSource(item.url, item.builtin); };
+      action.appendChild(btn);
       tr.appendChild(name); tr.appendChild(url); tr.appendChild(type); tr.appendChild(action);
       body.appendChild(tr);
     });
@@ -186,11 +184,21 @@ export function adminPage(version: string): string {
       setMsg('sourceMsg', '');
     }).catch(function (err) { setMsg('sourceMsg', err.message, true); });
   }
-  function removeSource(url) {
-    if (!confirm('删除该源？')) return;
+  function removeSource(url, builtin) {
+    if (!confirm(builtin ? '停用该内置源？聚合时将跳过，可随时恢复。' : '删除该源？')) return;
     request('/admin/sources?url=' + encodeURIComponent(url), { method: 'DELETE' })
-      .then(function (data) { renderSources({ builtin: [], extra: [] });
-        return loadSources(); })
+      .then(function () {
+        setMsg('sourceMsg', '已删除，刷新后生效');
+        return loadSources();
+      })
+      .catch(function (err) { setMsg('sourceMsg', err.message, true); });
+  }
+  function restoreSource(url) {
+    request('/admin/sources/restore?url=' + encodeURIComponent(url), { method: 'POST' })
+      .then(function () {
+        setMsg('sourceMsg', '已恢复，刷新后生效');
+        return loadSources();
+      })
       .catch(function (err) { setMsg('sourceMsg', err.message, true); });
   }
   function pollUntilDone() {
@@ -212,21 +220,41 @@ export function adminPage(version: string): string {
     }, 3000);
   }
 
-  el('loginBtn').onclick = function () {
-    token = el('tokenInput').value.trim();
-    if (!token) { setMsg('loginMsg', '请输入令牌', true); return; }
-    request('/admin/status').then(function () {
-      sessionStorage.setItem(TOKEN_KEY, token);
+  function enterAdmin() {
+    showMain(true);
+    loadStatus();
+    loadSources();
+  }
+  function login() {
+    var password = el('pwInput').value;
+    if (!password) { setMsg('loginMsg', '请输入管理密码', true); return; }
+    el('loginBtn').disabled = true;
+    fetch('/admin/login', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: password })
+    }).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok) throw new Error(data && data.error ? data.error : ('HTTP ' + res.status));
+        return data;
+      });
+    }).then(function () {
+      el('pwInput').value = '';
       setMsg('loginMsg', '');
-      showMain(true);
-      loadStatus();
-      loadSources();
-    }).catch(function () { setMsg('loginMsg', '登录失败', true); });
-  };
-  el('tokenInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') el('loginBtn').click(); });
+      enterAdmin();
+    }).catch(function (err) {
+      setMsg('loginMsg', err.message, true);
+    }).then(function () {
+      el('loginBtn').disabled = false;
+    });
+  }
+  el('loginBtn').onclick = login;
+  el('pwInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') login(); });
 
   el('logoutBtn').onclick = function () {
-    token = ''; sessionStorage.removeItem(TOKEN_KEY); showMain(false);
+    fetch('/admin/logout', { method: 'POST', credentials: 'same-origin' }).catch(function () {});
+    showMain(false);
     setMsg('loginMsg', '已退出');
   };
   el('reloadBtn').onclick = loadSources;
@@ -254,11 +282,13 @@ export function adminPage(version: string): string {
     }).catch(function (err) { setMsg('addMsg', err.message, true); });
   };
 
-  if (token) {
-    showMain(true);
-    loadStatus();
-    loadSources();
-  }
+  showMain(false);
+  request('/admin/status').then(function () {
+    enterAdmin();
+  }).catch(function () {
+    showMain(false);
+    setMsg('loginMsg', '');
+  });
 })();
 </script>
 </body>

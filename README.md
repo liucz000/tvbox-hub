@@ -14,7 +14,7 @@
 - **容错解析**：兼容 BOM、行/块注释、尾逗号、JSONP、裸 JSON 片段等常见「脏」配置
 - **可选探活**：`off / shallow / deep` 三档，非 `off` 时对站点做轻量校验，存活率低于 10% 时自动放弃过滤（防误杀）
 - **无状态两种后端**：Worker 用 KV，Node 用 JSON 文件（临时文件 + rename，串行落盘）
-- **安全默认值**：管理接口 fail-closed（未配 `ADMIN_TOKEN` 直接 503）、Bearer token 常量时间比较、SSRF 内网拦截、严格 CSP，且**不提供**任意 URL 代理 / 图片代理端点
+- **安全默认值**：管理接口 fail-closed（未配 `ADMIN_PASSWORD` / `ADMIN_TOKEN` 直接 503）、密码登录走签名 HttpOnly Cookie、Bearer token 常量时间比较、SSRF 内网拦截、严格 CSP，且**不提供**任意 URL 代理 / 图片代理端点
 
 ## 内置上游
 
@@ -30,7 +30,7 @@
 
 - 精确重复的入口（如「牛二」与王二小、「小盒子单仓」与 4K小盒子、老刘备与 ok线路）合并为同一源的备用地址
 - 当前已失效的镜像（饭太硬 .top/.net、肥猫 live、讴歌、运输车、菜妮丝、新接口等）保留为备用地址或独立条目，不会阻塞聚合
-- 自定义源仍可在管理后台随时增删，无需重新部署
+- 自定义源可随时增删，内置源也可在管理后台停用 / 恢复，无需重新部署
 - 本地实测（`PROBE=off`，并发 5）：18/20 个源可用，聚合 1100 个站点、83 个解析、48 个 JAR、2000 个直播频道，单次刷新约 17s
 
 ## 快速开始
@@ -44,7 +44,8 @@ npx wrangler login
 # 1. 创建 KV，把输出的 id 填进 wrangler.toml
 npx wrangler kv namespace create KV
 
-# 2. 写入管理令牌（不设置则不开放管理接口）
+# 2. 写入管理密码（后台登录用）和/或 Bearer 令牌（脚本调用用）
+npx wrangler secret put ADMIN_PASSWORD
 npx wrangler secret put ADMIN_TOKEN
 
 # 3. 部署
@@ -62,7 +63,7 @@ curl -X POST https://<你的-worker>.workers.dev/refresh \
 ### 方式二：Docker
 
 ```bash
-cp .env.example .env      # 填 ADMIN_TOKEN 和 BASE_URL
+cp .env.example .env      # 填 ADMIN_PASSWORD（或 ADMIN_TOKEN）和 BASE_URL
 docker compose up -d --build
 ```
 
@@ -71,7 +72,7 @@ docker compose up -d --build
 ```bash
 docker build -t tvbox-hub .
 docker run -d --name tvbox-hub -p 5678:5678 \
-  -e ADMIN_TOKEN=your-token \
+  -e ADMIN_PASSWORD=your-password \
   -e BASE_URL=http://192.168.1.10:5678 \
   -v $PWD/data:/app/data \
   tvbox-hub
@@ -86,7 +87,7 @@ docker run -d --name tvbox-hub -p 5678:5678 \
 ```bash
 npm install
 npm run build
-ADMIN_TOKEN=your-token BASE_URL=http://127.0.0.1:5678 npm start
+ADMIN_PASSWORD=your-password BASE_URL=http://127.0.0.1:5678 npm start
 ```
 
 ## 订阅地址
@@ -99,16 +100,19 @@ ADMIN_TOKEN=your-token BASE_URL=http://127.0.0.1:5678 npm start
 | `/live.json` | 仅含聚合直播的单条 `lives` 配置 |
 | `/jar/:key` | JAR 代理（由聚合结果自动生成，无需手填） |
 | `/healthz` `/version` `/status-data` | 健康检查、版本、聚合状态（公开只读） |
-| `/admin` | 管理后台（需 token） |
-| `GET/POST/DELETE /admin/sources` | 查看 / 添加 / 删除自定义源（需 token） |
-| `GET /admin/status` | 聚合状态明细，含每个源的耗时与错误（需 token） |
-| `POST /refresh` | 立即触发聚合（需 token，后台执行，返回 202） |
+| `/admin` | 管理后台（密码登录） |
+| `POST /admin/login` `/admin/logout` | 密码登录 / 退出（签名 Cookie，12 小时） |
+| `GET/POST/DELETE /admin/sources` | 查看 / 添加 / 删除源，删除内置源即停用（需登录） |
+| `POST /admin/sources/restore?url=` | 恢复已停用的内置源（需登录） |
+| `GET /admin/status` | 聚合状态明细，含每个源的耗时与错误（需登录） |
+| `POST /refresh` | 立即触发聚合（需登录，后台执行，返回 202） |
 
 ## 环境变量
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `ADMIN_TOKEN` | 空 | 管理后台与手动刷新的令牌；**留空 = 管理接口关闭（503）** |
+| `ADMIN_PASSWORD` | 空 | 管理后台密码；登录后签发 HttpOnly Cookie |
+| `ADMIN_TOKEN` | 空 | Bearer 令牌，用于 curl / 脚本调用管理接口；与 `ADMIN_PASSWORD` 均留空 = 管理接口关闭（503） |
 | `BASE_URL` | 空 | 对外地址，用于替换配置中的占位符；留空则用请求 Host |
 | `REFRESH_INTERVAL_MINUTES` | `720` | 两次聚合的最小间隔（Worker 靠 cron 唤醒判断） |
 | `PROBE` | `off` | 站点探活：`off` / `shallow` / `deep` |
@@ -119,13 +123,13 @@ ADMIN_TOKEN=your-token BASE_URL=http://127.0.0.1:5678 npm start
 
 ## 管理后台
 
-浏览器打开 `/admin`，输入 `ADMIN_TOKEN` 后可以：
+浏览器打开 `/admin`，输入 `ADMIN_PASSWORD` 后可以：
 
 - 查看聚合状态、各源成败与耗时
-- 添加 / 删除自定义源（写入 KV 或数据文件，重启不丢失）
+- 添加 / 删除自定义源，停用 / 恢复内置源（写入 KV 或数据文件，重启不丢失）
 - 一键触发重新聚合
 
-令牌只存在 `sessionStorage`，页面使用 `textContent` 渲染，避免 XSS；响应头带 CSP、`nosniff`、`no-referrer`。
+密码只用于换取 12 小时有效的 HttpOnly 签名 Cookie，页面不再保存任何凭据；页面使用 `textContent` 渲染，避免 XSS；响应头带 CSP、`nosniff`、`no-referrer`。
 
 ## 聚合流程
 
@@ -140,8 +144,9 @@ ADMIN_TOKEN=your-token BASE_URL=http://127.0.0.1:5678 npm start
 
 ## 安全说明
 
-- 管理接口 fail-closed：`ADMIN_TOKEN` 为空时返回 503，而不是放行
-- Token 比较前先做 SHA-256，再做等长比较，避免长度/时序差异
+- 管理接口 fail-closed：`ADMIN_PASSWORD` 与 `ADMIN_TOKEN` 均为空时返回 503，而不是放行
+- Token / 密码比较前先做 SHA-256，再做等长比较，避免长度/时序差异
+- 会话 Cookie 使用 HMAC-SHA256 签名并带过期时间，`HttpOnly` + `SameSite=Strict`，HTTPS 下再加 `Secure`
 - 抓取与 JAR 代理均校验目标为 http/https 且非内网地址（回环、私有网段、链路本地、CGNAT）
 - 不提供通用 URL 代理或图片代理端点，避免被当作开放代理滥用
 - 所有内容来自第三方公开源，本项目不存储、不转码、不分发视频内容
@@ -161,7 +166,7 @@ Worker 默认 `PROBE=off`，且探活并发与预算都比 Node 模式更保守�
 内置源全量聚合一次约 45 个子请求，Cloudflare 免费版上限是 50 个/次。免费版请把 `MAX_SOURCES` 调到 10 左右，或在 `src/defaults.ts` 里减少直播源；付费版（1000 子请求）可全量跑。Docker / 本地 Node 无此限制。
 
 **改完源需要重新部署吗？**
-不需要。自定义源与聚合结果都存在 KV / 数据文件中。
+不需要。自定义源、内置源停用名单与聚合结果都存在 KV / 数据文件中。
 
 ## 开发
 
